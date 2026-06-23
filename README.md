@@ -23,7 +23,6 @@
 | 取得管道 | [`kong0107/mojLawSplitJSON`](https://github.com/kong0107/mojLawSplitJSON)(將 MOJ 開放資料拆分為單一法規 JSON) |
 | 法規異動日期 | 2026-03-13 |
 
-感謝 `kong0107/mojLawSplitJSON` 提供乾淨的結構化 JSON。
 
 ---
 
