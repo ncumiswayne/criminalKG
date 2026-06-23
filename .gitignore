@@ -1,0 +1,21 @@
+# === 機密:Neo4j 連線憑證(含密碼),絕對不可上傳 ===
+Neo4j-*.txt
+*credential*
+*.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 作業系統 / 編輯器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 大型 / 衍生輸出(可由 parser 重新產生,視需要決定是否追蹤)
+# cypher/criminal_code_full.cypher
