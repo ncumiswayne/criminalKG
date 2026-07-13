@@ -114,6 +114,25 @@ def classify(text: str) -> str:
 
 
 # ----------------------------------------------------------------------
+# 人工複核後的關係修正(取代原 cleanup.cypher 的 C 段)
+# ----------------------------------------------------------------------
+# 列舉型條文:只是列一串條號宣告管轄/免刑/告訴乃論/保安處分,
+# 對所列條文無加重減輕引用語意 → 一律 LISTS
+_ENUM_LISTS = {'5', '6', '61', '91-1', '236', '245',
+               '287', '308', '319', '357', '363'}
+# 加重結果犯/結合犯:「因而致…」句式,關鍵字啟發式抓不到 → 強制 AGGRAVATES
+_FORCE_AGG = {'226', '226-1'}
+
+
+def _relabel(src_number: str, rel: str) -> str:
+    if src_number in _ENUM_LISTS:
+        return 'LISTS'
+    if src_number in _FORCE_AGG:
+        return 'AGGRAVATES'
+    return rel
+
+
+# ----------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------
 def parse(law_json: dict):
@@ -173,20 +192,25 @@ def parse(law_json: dict):
             if art_props['text'] == '（刪除）':
                 art_props['is_deleted'] = True
 
-            # ---- 交叉引用抽取(逐項掃描,但來源一律是「條」) ----
-            for pno, ptext, _subs in paras:
+            # ---- 交叉引用抽取(逐項掃描,款文字併入;來源一律是「條」) ----
+            art_number = num + (f'-{sub}' if sub else '')
+            for pno, ptext, subs in paras:
+                # 款的條號也要掃(§5/§6/§61 等把條號列在款裡)
+                scan_text = '\n'.join([ptext] + [s for _, s in subs])
                 # 相對引用
-                if '前條' in ptext and last_article:
-                    rel = classify(ptext)
-                    crossref.append((code, rel, last_article[0],
-                                     {'note': '前條', 'condition': _condition(ptext)}))
+                if '前條' in scan_text and last_article:
+                    rel = _relabel(art_number, classify(scan_text))
+                    props = {'note': '前條'}
+                    if rel in ('AGGRAVATES', 'MITIGATES'):
+                        props['condition'] = _condition(scan_text)
+                    crossref.append((code, rel, last_article[0], props))
                 # 未遂 / 預備:同條內的處罰宣示 → 記為 Article 布林屬性
                 if '未遂犯' in ptext and _same_article_para(code, ptext, pno, 'attempt'):
                     art_props['punishes_attempt'] = True
                 if '預備犯' in ptext and _same_article_para(code, ptext, pno, 'prep'):
                     art_props['punishes_preparation'] = True
                 # 絕對引用:第○○○條(第○項)? → 一律連到「條」
-                for rm in _RE_REF_ART.finditer(ptext):
+                for rm in _RE_REF_ART.finditer(scan_text):
                     art_n = cn2int(rm.group(1))
                     if art_n is None:
                         continue
@@ -194,9 +218,11 @@ def parse(law_json: dict):
                     dst = art_code(str(art_n), str(sub_n) if sub_n else None)
                     if dst == code:
                         continue
-                    rel = classify(ptext)
-                    crossref.append((code, rel, dst,
-                                     {'condition': _condition(ptext)}))
+                    rel = _relabel(art_number, classify(scan_text))
+                    props = {}
+                    if rel in ('AGGRAVATES', 'MITIGATES'):
+                        props['condition'] = _condition(scan_text)
+                    crossref.append((code, rel, dst, props))
 
             nodes.append(('Article', code, art_props))
             if cur_chap:

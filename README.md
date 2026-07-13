@@ -112,14 +112,15 @@ python emit_oneshot.py ../data/C0000001.json
 | Chapter(章) | 54 |
 | Part(編) | 2 |
 
-**關係 625(去重後)**
+**關係 677(去重後)**
 
 | 關係 | 中文 | 數量 |
 |---|---|---|
 | CONTAINS | 包含(階層) | 476 |
-| CITES | 引用 | 121 |
-| AGGRAVATES | 加重 | 15 |
-| MITIGATES | 減輕 | 13 |
+| CITES | 引用 | 95 |
+| LISTS | 列舉(中性) | 69 |
+| AGGRAVATES | 加重 | 25 |
+| MITIGATES | 減輕 | 12 |
 
 **Article 屬性(取代原本的項級關係)**
 
@@ -128,7 +129,7 @@ python emit_oneshot.py ../data/C0000001.json
 | punishes_attempt | 未遂處罰 | 95 |
 | punishes_preparation | 預備處罰 | 7 |
 
-> CITES 中的列舉型條文(管轄/告訴乃論等)執行 `cleanup.cypher` 後會降級為 LISTS。
+> 人工複核後的關係修正已內建於 parser(`_ENUM_LISTS`:列舉型條文一律 LISTS;`_FORCE_AGG`:§226/§226-1 加重結果犯強制 AGGRAVATES),`cleanup.cypher` 僅保留 A 段診斷查詢供複核用,無須再手動清理。
 
 ---
 
