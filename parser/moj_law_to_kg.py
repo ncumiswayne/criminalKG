@@ -3,11 +3,14 @@
 """
 moj_law_to_kg.py
 將「全國法規資料庫」結構化 JSON(例:中華民國刑法 pcode=C0000001)
-轉成 6 層法典知識圖譜的 Cypher MERGE 腳本。
+轉成 3 層法典知識圖譜的 Cypher MERGE 腳本。
 
-層級:編 Part -> 章 Chapter -> 節 Section -> 條 Article -> 項 Paragraph -> 款 Subparagraph
+層級:編 Part -> 章 Chapter -> 條 Article
+  - 「節」標題忽略(條直接掛章);「項/款」不建節點,全文合併進 Article.text
+  - 條內的「未遂犯罰之/預備犯…」改記為 Article 布林屬性
+    punishes_attempt / punishes_preparation
 骨架:(parent)-[:CONTAINS]->(child)
-橫向:CITES / AGGRAVATES / MITIGATES / PUNISHES_ATTEMPT / PUNISHES_PREPARATION
+橫向:CITES / AGGRAVATES / MITIGATES(皆為 條 -> 條)
 
 輸入 JSON 預期格式(MOJ open data):
 {
@@ -121,9 +124,9 @@ def parse(law_json: dict):
     law_name = law_json.get('法規名稱', '未知法規')
     items = law_json.get('法規內容', [])
 
-    cur_part = cur_chap = cur_sect = None
+    cur_part = cur_chap = None
     last_article = None                       # (code, number_int) 供「前條」用
-    order_part = order_chap = order_sect = 0
+    order_part = order_chap = 0
 
     for it in items:
         # ---- 編章節標題行 ----
@@ -136,7 +139,7 @@ def parse(law_json: dict):
                 nodes.append(('Part', cur_part,
                               {'title': clean_title(head, ''), 'number': str(num),
                                'order': num, 'level': '編', 'law': law_name}))
-                cur_chap = cur_sect = None
+                cur_chap = None
             elif _RE_CHAP.search(head):
                 cm = _RE_CHAP.search(head)
                 num = cn2int(cm.group(1))
@@ -147,15 +150,7 @@ def parse(law_json: dict):
                                'order': num, 'level': '章', 'law': law_name}))
                 if cur_part:
                     contains.append((cur_part, cur_chap))
-                cur_sect = None
-            elif _RE_SECT.search(head):
-                num = cn2int(_RE_SECT.search(head).group(1))
-                cur_sect = (cur_chap or '刑法') + f'-節{num}'
-                nodes.append(('Section', cur_sect,
-                              {'title': clean_title(head, ''), 'number': str(num),
-                               'order': num, 'level': '節', 'law': law_name}))
-                if cur_chap:
-                    contains.append((cur_chap, cur_sect))
+            # 「節」標題:三層模型不建節點,直接忽略(條照樣掛在章底下)
             continue
 
         # ---- 條文 ----
@@ -169,54 +164,28 @@ def parse(law_json: dict):
             content = it.get('條文內容', '') or ''
 
             paras = split_paragraphs(content)
-            # 無項(單句)→ 文字掛在條(葉);有多項 → 條只掛標題
-            article_text = paras[0][1] if len(paras) == 1 else ''
-            nodes.append(('Article', code,
-                          {'title': f'第{num}' + (f'-{sub}' if sub else '') + '條',
-                           'number': num + (f'-{sub}' if sub else ''),
-                           'order': num_int, 'level': '條', 'law': law_name,
-                           'text': article_text}))
-            # 掛在最近的 節 > 章 (skip-level)
-            parent = cur_sect or cur_chap
-            if parent:
-                contains.append((parent, code))
+            # 三層模型:項/款不建節點,整條原文(含項款換行)存入 text
+            art_props = {'title': f'第{num}' + (f'-{sub}' if sub else '') + '條',
+                         'number': num + (f'-{sub}' if sub else ''),
+                         'order': num_int, 'level': '條', 'law': law_name,
+                         'text': content.replace('\r', '').strip()}
+            # 已刪除條文:內容固定為「（刪除）」,標記之(檢索時應排除)
+            if art_props['text'] == '（刪除）':
+                art_props['is_deleted'] = True
 
-            # 項 / 款
-            para_codes = []
-            if len(paras) > 1:
-                for pno, ptext, subs in paras:
-                    pcode = f'{code}-項{pno}'
-                    para_codes.append((pno, pcode, ptext))
-                    nodes.append(('Paragraph', pcode,
-                                  {'number': str(pno), 'order': pno, 'level': '項',
-                                   'text': ptext}))
-                    contains.append((code, pcode))
-                    for sno, stext in subs:
-                        scode = f'{pcode}-款{sno}'
-                        nodes.append(('Subparagraph', scode,
-                                      {'number': str(sno), 'order': sno,
-                                       'level': '款', 'text': stext}))
-                        contains.append((pcode, scode))
-
-            # ---- 交叉引用抽取 ----
-            # 逐項處理,讓「前項 / 預備犯第X項之罪」能定位
-            scan_units = para_codes if para_codes else [(1, code, content)]
-            for pno, src_code, ptext in scan_units:
+            # ---- 交叉引用抽取(逐項掃描,但來源一律是「條」) ----
+            for pno, ptext, _subs in paras:
                 # 相對引用
                 if '前條' in ptext and last_article:
                     rel = classify(ptext)
                     crossref.append((code, rel, last_article[0],
                                      {'note': '前條', 'condition': _condition(ptext)}))
-                # 未遂 / 預備:指向同條被引用的項(預設前一項或文中指明的項)
-                if '未遂犯' in ptext:
-                    tgt = _same_article_para(code, ptext, pno, kind='attempt')
-                    if tgt:
-                        crossref.append((src_code, 'PUNISHES_ATTEMPT', tgt, {}))
-                if '預備犯' in ptext:
-                    tgt = _same_article_para(code, ptext, pno, kind='prep')
-                    if tgt:
-                        crossref.append((src_code, 'PUNISHES_PREPARATION', tgt, {}))
-                # 絕對引用:第○○○條(第○項)?
+                # 未遂 / 預備:同條內的處罰宣示 → 記為 Article 布林屬性
+                if '未遂犯' in ptext and _same_article_para(code, ptext, pno, 'attempt'):
+                    art_props['punishes_attempt'] = True
+                if '預備犯' in ptext and _same_article_para(code, ptext, pno, 'prep'):
+                    art_props['punishes_preparation'] = True
+                # 絕對引用:第○○○條(第○項)? → 一律連到「條」
                 for rm in _RE_REF_ART.finditer(ptext):
                     art_n = cn2int(rm.group(1))
                     if art_n is None:
@@ -228,6 +197,10 @@ def parse(law_json: dict):
                     rel = classify(ptext)
                     crossref.append((code, rel, dst,
                                      {'condition': _condition(ptext)}))
+
+            nodes.append(('Article', code, art_props))
+            if cur_chap:
+                contains.append((cur_chap, code))
 
             last_article = (code, num_int)
 
@@ -243,7 +216,8 @@ def _condition(text: str):
 
 
 def _same_article_para(code, ptext, cur_pno, kind):
-    """未遂/預備 在同條內指向的項。預設:前項;若文中『第○項』則用之。"""
+    """判斷『未遂犯/預備犯』是否為同條內的處罰宣示(回傳 truthy 即成立)。
+       預設:指前項;若文中『第○項』則用之。三層模型只作偵測用途。"""
     m = re.search(r'第([一二三四五六七八九十\d]+)項', ptext)
     if m:
         n = cn2int(m.group(1))
@@ -259,15 +233,18 @@ def _same_article_para(code, ptext, cur_pno, kind):
 def esc(v):
     if v is None:
         return 'null'
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
     if isinstance(v, (int, float)):
         return str(v)
-    return "'" + str(v).replace('\\', '\\\\').replace("'", "\\'") + "'"
+    return ("'" + str(v).replace('\\', '\\\\').replace("'", "\\'")
+            .replace('\n', '\\n') + "'")
 
 
 def to_cypher(law_name, nodes, contains, crossref):
     out = [f'// 自動產生:{law_name} 知識圖譜', '']
     out.append('// --- 約束 ---')
-    for lbl in ['Part', 'Chapter', 'Section', 'Article', 'Paragraph', 'Subparagraph']:
+    for lbl in ['Part', 'Chapter', 'Article']:
         out.append(f'CREATE CONSTRAINT {lbl.lower()}_code IF NOT EXISTS '
                    f'FOR (n:{lbl}) REQUIRE n.code IS UNIQUE;')
     out.append('')

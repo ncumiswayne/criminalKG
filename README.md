@@ -2,7 +2,7 @@
 
 把《中華民國刑法》全文轉成一張結構化、可查詢、可推理的**知識圖譜 (Knowledge Graph)**,作為後續 RAG(檢索增強生成)系統的知識骨架。
 
-> **目前狀態:KG 已建置完成。** 1,228 個節點、1,524 條關係,已載入 Neo4j Aura 並完成資料品質清理。
+> **目前狀態:已改版為三層結構。** 478 個節點、625 條關係;項/款文字合併進「條」節點,作為後續 OpenIE 語意三元組抽取的基礎。
 
 ---
 
@@ -57,8 +57,8 @@ criminal-code-kg/
 在 Neo4j(Aura 或本機)的查詢介面,依序執行:
 
 1. `cypher/01_constraints.cypher` — 建立約束
-2. `cypher/A_nodes_oneshot.cypher` — 建立 1,228 個節點
-3. `cypher/B_rels_oneshot.cypher` — 建立 1,524 條關係
+2. `cypher/A_nodes_oneshot.cypher` — 建立 478 個節點
+3. `cypher/B_rels_oneshot.cypher` — 建立全部關係
 4. `cypher/cleanup.cypher` — 清理啟發式誤判(分段執行,見檔內註解)
 
 > Aura Query 編輯器一次只執行一段 statement,A/B 兩檔已各包成單段,整段貼上即可一次灌完。
@@ -82,14 +82,21 @@ python emit_oneshot.py ../data/C0000001.json
 
 ## 資料模型 (Data Model)
 
-六層階層,完全對應法典本身的結構:
+三層階層,以「條」為最小結構單位:
 
 ```
-編 Part → 章 Chapter → 節 Section → 條 Article → 項 Paragraph → 款 Subparagraph
+編 Part → 章 Chapter → 條 Article
 ```
 
-- 骨架關係:`(上層)-[:CONTAINS]->(下層)`,「節」與「款」為選用層(無則 skip-level)。
-- 橫向關係:`AGGRAVATES`(加重)、`MITIGATES`(減輕)、`CITES`(引用)、`PUNISHES_ATTEMPT`(未遂處罰)、`PUNISHES_PREPARATION`(預備處罰)、`LISTS`(中性列舉)。
+- 「節」標題不建節點(條直接掛章);「項/款」不建節點,**整條原文(含項款、以換行分隔)存於 `Article.text`**。
+- 骨架關係:`(上層)-[:CONTAINS]->(下層)`。
+- 橫向關係(皆為 條→條):`AGGRAVATES`(加重)、`MITIGATES`(減輕)、`CITES`(引用)、`LISTS`(中性列舉,由 cleanup 降級產生)。
+- 同條內的「未遂犯罰之/預備犯…」改記為 Article 布林屬性:`punishes_attempt`、`punishes_preparation`。
+- 已刪除條文(內容為「（刪除）」,共 20 條)標記 `is_deleted: true`,檢索與抽取時應排除。
+- 條數說明:刑法本文條號至第 363 條,另有 59 條增訂條文(第X條之Y),故 Article 共 422 個。
+- 設計理由:結構層只負責定位與脈絡;**語意內容交給第四層(規劃中)的 OpenIE 三元組**,三元組以 `EXTRACTED_FROM` 回連來源「條」。
+
+詳細的節點屬性、`code` 命名規則、關係定義與設計理由,見 [`docs/criminal_code_kg_spec.md`](docs/criminal_code_kg_spec.md)。
 
 詳細的節點屬性、`code` 命名規則、關係定義與設計理由,見 [`docs/criminal_code_kg_spec.md`](docs/criminal_code_kg_spec.md)。
 
@@ -97,27 +104,31 @@ python emit_oneshot.py ../data/C0000001.json
 
 ## 圖譜統計 (Statistics)
 
-**節點 1,228**
+**節點 478**
 
 | Label | 數量 |
 |---|---|
-| Paragraph(項) | 628 |
 | Article(條) | 422 |
-| Subparagraph(款) | 122 |
 | Chapter(章) | 54 |
 | Part(編) | 2 |
 
-**關係 1,524**
+**關係 625(去重後)**
 
 | 關係 | 中文 | 數量 |
 |---|---|---|
-| CONTAINS | 包含(階層) | 1,226 |
-| CITES | 引用 | 107 |
-| PUNISHES_ATTEMPT | 未遂處罰 | 95 |
-| LISTS | 列舉(中性) | 62 |
+| CONTAINS | 包含(階層) | 476 |
+| CITES | 引用 | 121 |
 | AGGRAVATES | 加重 | 15 |
-| MITIGATES | 減輕 | 12 |
-| PUNISHES_PREPARATION | 預備處罰 | 7 |
+| MITIGATES | 減輕 | 13 |
+
+**Article 屬性(取代原本的項級關係)**
+
+| 屬性 | 中文 | 數量 |
+|---|---|---|
+| punishes_attempt | 未遂處罰 | 95 |
+| punishes_preparation | 預備處罰 | 7 |
+
+> CITES 中的列舉型條文(管轄/告訴乃論等)執行 `cleanup.cypher` 後會降級為 LISTS。
 
 ---
 
@@ -138,18 +149,18 @@ RETURN path;
 
 ## 後續工作 (Roadmap)
 
-- [ ] 建立全文索引 / 向量嵌入,作為 RAG 檢索入口
-- [ ] 查詢理解層:LLM 把口語問題拆解、正規化成結構化意圖(含條號驗證回 KG)
-- [ ] 情境檢索查詢:沿關係擴展、組成 context
+- [ ] **第四層:OpenIE 語意三元組**——從 `Article.text` 抽取 (S, P, O),以 `EXTRACTED_FROM` 回連來源條文
+- [ ] 三元組向量嵌入,作為 GraphRAG 檢索入口(口語問題 → 比對三元組 → 定位條文 → 沿關係擴展)
+- [ ] 查詢理解層:LLM 把口語問題正規化為法律用語後再檢索
 - [ ] 接上總則計算規則(§25 未遂定義、§64–73 加減例)
-- [ ] 引用精度提升到「項」層級
 
 ---
 
 ## 已知限制 (Known Limitations)
 
 - 橫向關係以關鍵字啟發式抽取,列舉型條文需人工複核(已於 `cleanup.cypher` 處理主要案例)。
-- 「第○條第○項」引用目前連到「條」,尚未精確到「項」。
+- 「第○條第○項」引用一律連到「條」(三層模型的設計決定,項級語意將由第四層三元組承擔)。
+- 少數引用指向已刪除之條文,建立關係時會因目標不存在而自動略過。
 
 ---
 
