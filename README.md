@@ -2,7 +2,7 @@
 
 把《中華民國刑法》全文轉成一張結構化、可查詢、可推理的**知識圖譜 (Knowledge Graph)**,作為後續 RAG(檢索增強生成)系統的知識骨架。
 
-> **目前狀態:已改版為三層結構。** 478 個節點、625 條關係;項/款文字合併進「條」節點,作為後續 OpenIE 語意三元組抽取的基礎。
+> **目前狀態:三層結構 + 第四層語意事實 pilot 上線。** 結構層 478 節點、677 關係;語意層(殺人罪章+傷害罪章)62 個 Fact 三元組,以法條句式規則(中文 OpenIE)抽取,經人工複核 precision 100%(訓練集,held-out 評估待做)。
 
 ---
 
@@ -41,9 +41,14 @@ criminal-code-kg/
 │   ├── 01_constraints.cypher # 步驟1:建立唯一性約束
 │   ├── A_nodes_oneshot.cypher# 步驟2:建立全部節點
 │   ├── B_rels_oneshot.cypher # 步驟3:建立全部關係
-│   └── cleanup.cypher        # 步驟4:資料品質清理
+│   └── cleanup.cypher        # 診斷查詢(修正已內建 parser,無須再跑)
+├── extraction/               # 第四層:語意事實抽取(中文 OpenIE)
+│   ├── extract_facts.py      # 句式規則抽取器(pilot:§271–287)
+│   ├── facts_pilot.json      # 抽取結果(62 個三元組,含出處)
+│   ├── facts_review.md       # 人工複核表(gold standard)
+│   └── C_facts_oneshot.cypher# 步驟5:Fact 節點 + EXTRACTED_FROM
 ├── docs/
-│   └── criminal_code_kg_spec.md  # 完整技術文件(資料模型、方法、設計理由)
+│   └── criminal_code_kg_spec.md  # 技術文件(v1 設計紀錄,現行架構見本 README)
 └── examples/
     └── sample.json           # 測試用小樣本
 ```
@@ -56,10 +61,10 @@ criminal-code-kg/
 
 在 Neo4j(Aura 或本機)的查詢介面,依序執行:
 
-1. `cypher/01_constraints.cypher` — 建立約束
+1. `cypher/01_constraints.cypher` — 建立約束(逐行執行)
 2. `cypher/A_nodes_oneshot.cypher` — 建立 478 個節點
-3. `cypher/B_rels_oneshot.cypher` — 建立全部關係
-4. `cypher/cleanup.cypher` — 清理啟發式誤判(分段執行,見檔內註解)
+3. `cypher/B_rels_oneshot.cypher` — 建立 677 條關係
+4. `extraction/C_facts_oneshot.cypher` — 建立第四層 62 個 Fact(先跑檔內約束行,再貼整段)
 
 > Aura Query 編輯器一次只執行一段 statement,A/B 兩檔已各包成單段,整段貼上即可一次灌完。
 
@@ -94,7 +99,17 @@ python emit_oneshot.py ../data/C0000001.json
 - 同條內的「未遂犯罰之/預備犯…」改記為 Article 布林屬性:`punishes_attempt`、`punishes_preparation`。
 - 已刪除條文(內容為「（刪除）」,共 20 條)標記 `is_deleted: true`,檢索與抽取時應排除。
 - 條數說明:刑法本文條號至第 363 條,另有 59 條增訂條文(第X條之Y),故 Article 共 422 個。
-- 設計理由:結構層只負責定位與脈絡;**語意內容交給第四層(規劃中)的 OpenIE 三元組**,三元組以 `EXTRACTED_FROM` 回連來源「條」。
+- 設計理由:結構層只負責定位與脈絡;**語意內容交給第四層的 Fact 三元組**。
+
+**第四層:語意事實 (Fact)** — pilot 已上線(殺人罪章 §271–276 + 傷害罪章 §277–287):
+
+- `(:Fact {subject, predicate, object, sentence})-[:EXTRACTED_FROM]->(:Article)`
+- 抽取方法:法條句式規則(中文 OpenIE)——者字句、未遂句、加重結果、告訴乃論、但書;
+  前處理含條號正規化、指代消解(前項/前條/前二條)、省略補全(「致重傷者」補回基礎行為)
+- 謂詞白名單:`法定刑` / `刑之加重` / `刑之減免` / `未遂處罰` / `加重結果` / `訴追條件`
+- 刑度正規化:`penalty_types`(刑種)、`penalty_min/max`(有期徒刑區間)、
+  `penalty_min/max_months`(月數,供數值比較)、`penalty_fine_max`(罰金上限)、`penalty_fine_mode`(併科)
+  > 語意約定:min/max 只描述**有期徒刑**區間;死刑/無期徒刑/拘役/罰金為類別,記於 types;罰金金額在 fine_max。
 
 詳細的節點屬性、`code` 命名規則、關係定義與設計理由,見 [`docs/criminal_code_kg_spec.md`](docs/criminal_code_kg_spec.md)。
 
@@ -129,6 +144,17 @@ python emit_oneshot.py ../data/C0000001.json
 | punishes_attempt | 未遂處罰 | 95 |
 | punishes_preparation | 預備處罰 | 7 |
 
+**第四層 Fact(pilot §271–287)共 62**
+
+| 謂詞 | 數量 |
+|---|---|
+| 法定刑 | 34 |
+| 加重結果 | 12 |
+| 未遂處罰 | 7 |
+| 刑之加重 | 4 |
+| 訴追條件 | 4 |
+| 刑之減免 | 1 |
+
 > 人工複核後的關係修正已內建於 parser(`_ENUM_LISTS`:列舉型條文一律 LISTS;`_FORCE_AGG`:§226/§226-1 加重結果犯強制 AGGRAVATES),`cleanup.cypher` 僅保留 A 段診斷查詢供複核用,無須再手動清理。
 
 ---
@@ -150,18 +176,23 @@ RETURN path;
 
 ## 後續工作 (Roadmap)
 
-- [ ] **第四層:OpenIE 語意三元組**——從 `Article.text` 抽取 (S, P, O),以 `EXTRACTED_FROM` 回連來源條文
-- [ ] 三元組向量嵌入,作為 GraphRAG 檢索入口(口語問題 → 比對三元組 → 定位條文 → 沿關係擴展)
+- [x] **第四層:OpenIE 語意三元組**(pilot:殺人+傷害罪章,62 個 Fact,人工複核 62/62)
+- [ ] Held-out 評估:規則不動,直接跑竊盜/詐欺罪章,計算 precision / recall(誠實的成績)
+- [ ] 抽取範圍擴至整部分則,錯誤分析 → 規則迭代
+- [ ] 概念層 (Concept):建法律概念詞表,把散落各條的同一概念(故意/重傷/幫助犯)合併為共享節點
+- [ ] 三元組向量嵌入(Neo4j vector index),作為 GraphRAG 檢索入口
 - [ ] 查詢理解層:LLM 把口語問題正規化為法律用語後再檢索
-- [ ] 接上總則計算規則(§25 未遂定義、§64–73 加減例)
+- [ ] 接上總則計算規則(§25 未遂定義、§61 免刑、§64–73 加減例,可用 penalty_max_months 判斷)
 
 ---
 
 ## 已知限制 (Known Limitations)
 
-- 橫向關係以關鍵字啟發式抽取,列舉型條文需人工複核(已於 `cleanup.cypher` 處理主要案例)。
-- 「第○條第○項」引用一律連到「條」(三層模型的設計決定,項級語意將由第四層三元組承擔)。
+- 橫向關係以關鍵字啟發式抽取,列舉型條文需人工複核(修正已內建 parser)。
+- 「第○條第○項」引用一律連到「條」(三層模型的設計決定,項級語意由第四層三元組承擔)。
 - 少數引用指向已刪除之條文,建立關係時會因目標不存在而自動略過。
+- 「第X條**至**第Y條」的範圍引用只抓到頭尾兩條,中間條號未展開。
+- Fact 抽取規則以 pilot 兩章迭代調校,**62/62 為訓練集成績**;泛化能力需 held-out 章節評估。
 
 ---
 
