@@ -8,8 +8,10 @@
 >
 > - 「節」不建節點;「項/款」全文合併入 `Article.text`;未遂/預備改為 Article 布林屬性
 > - 已刪除條文標記 `is_deleted: true`(20 條);列舉條/加重結果犯之關係修正已內建 parser
-> - 第四層:`extraction/extract_facts.py` 以法條句式規則(中文 OpenIE)抽取 SPO 三元組
->   (謂詞白名單:法定刑/刑之加重/刑之減免/未遂處罰/加重結果/訴追條件),
+> - 第四層:`extraction/extract_facts.py` 以法條句式規則(中文 OpenIE)抽取 SPO 三元組,
+>   涵蓋總則 §1–99(選抽)+ 殺人/傷害罪章,共 143 個 Fact
+>   (謂詞白名單 12 種:法定刑/刑之加重/刑之減免/未遂處罰/加重結果/訴追條件/
+>   定義/不罰/科刑限制/保安處分/沒收/處罰依據),
 >   Fact 節點以 `EXTRACTED_FROM` 回連 Article,刑度並正規化為結構化屬性
 >
 > 現行模型與統計以 [README](../README.md) 為準;本文件保留作 v1 設計理由與方法紀錄。
