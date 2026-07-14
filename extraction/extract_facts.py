@@ -21,7 +21,8 @@ Pipeline:
      R6 定義句:「稱X者,謂Y」「X者,為Y」「X者,以Y論」(總則)
      R7 效果句(無者):「X之行為,不罰/得減輕其刑」(總則)
      R8 亦同句:「X,亦同」繼承前一事實之謂詞與受詞
-     R9 未遂處罰原則:「未遂犯之處罰…並得按既遂犯之刑減輕之」(§25)
+     R9 處罰原則句:「X之處罰,依/得按…」(§25/29/30/48)
+     R10 種類/分類定義:「主刑之種類如下」「刑分為主刑及從刑」(§32/33/36)
   ④ 刑度正規化 ⑤ 輸出 json / review.md / cypher
 
 謂詞白名單:法定刑 / 刑之加重 / 刑之減免 / 未遂處罰 / 加重結果 / 訴追條件 / 定義
@@ -312,6 +313,7 @@ def extract_article(art, text, prev_arts, facts):
 
 
 _seen = set()
+_art_seq = {}
 
 
 def add(facts, art, pno, sent, s, p, o):
@@ -320,7 +322,8 @@ def add(facts, art, pno, sent, s, p, o):
     if key in _seen:
         return {}
     _seen.add(key)
-    f = {'fid': f'F-{art}-{pno}-{len(facts) + 1}',
+    _art_seq[art] = _art_seq.get(art, 0) + 1
+    f = {'fid': f'F-{art}-{pno}-{_art_seq[art]}',
          'subject': s, 'predicate': p, 'object': o,
          'article': art, 'para': pno, 'sentence': sent}
     facts.append(f)
@@ -359,8 +362,12 @@ def to_cypher(facts):
                     props[f'penalty_{k}_months'] = \
                         n * 12 if pen[k].endswith('年') else n
         rows.append(props)
-    seg = ['// === 檔C:第四層 Fact 節點(先執行下行約束,再整段執行)===',
-           'CREATE CONSTRAINT fact_fid IF NOT EXISTS FOR (n:Fact) REQUIRE n.fid IS UNIQUE;']
+    seg = ['// === 檔C:第四層 Fact 節點 ===',
+           '// 步驟1(單獨執行):約束',
+           'CREATE CONSTRAINT fact_fid IF NOT EXISTS FOR (n:Fact) REQUIRE n.fid IS UNIQUE;',
+           '// 步驟2(單獨執行):清空舊 Fact 整批重建,避免 fid 漂移殘留',
+           'MATCH (f:Fact) DETACH DELETE f;',
+           '// 步驟3:以下整段一次執行']
     arr = ', '.join('{' + ', '.join(f'{k}: {esc(v)}' for k, v in r.items()) + '}'
                     for r in rows)
     seg.append(f'UNWIND [{arr}] AS f MERGE (n:Fact {{fid: f.fid}}) SET n += f')

@@ -64,7 +64,7 @@ criminal-code-kg/
 1. `cypher/01_constraints.cypher` — 建立約束(逐行執行)
 2. `cypher/A_nodes_oneshot.cypher` — 建立 478 個節點
 3. `cypher/B_rels_oneshot.cypher` — 建立 677 條關係
-4. `extraction/C_facts_oneshot.cypher` — 建立第四層 62 個 Fact(先跑檔內約束行,再貼整段)
+4. `extraction/C_facts_oneshot.cypher` — 建立第四層 143 個 Fact(檔內三步驟:約束 → 清空舊 Fact → 整段重建;fid 為條內流水號,重貼冪等)
 
 > Aura Query 編輯器一次只執行一段 statement,A/B 兩檔已各包成單段,整段貼上即可一次灌完。
 
