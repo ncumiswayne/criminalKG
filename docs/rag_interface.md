@@ -9,7 +9,7 @@
 
 ```
 (:Part)-[:CONTAINS]->(:Chapter)-[:CONTAINS]->(:Article)   ← 結構層(全法典 422 條)
-(:Fact)-[:EXTRACTED_FROM]->(:Article)                      ← 語意層(pilot 62 個)
+(:Fact)-[:EXTRACTED_FROM]->(:Article)                      ← 語意層(143 個 Fact)
 (:Article)-[:AGGRAVATES|MITIGATES|CITES|LISTS]->(:Article) ← 條文橫向關係
 ```
 
@@ -59,7 +59,7 @@
 
 ## 已知限制(先講清楚,免得踩雷)
 
-- 語意層只有總則 §1–27 + 分則 §271–287,其他條只有結構層與橫向關係。
+- 語意層只有總則 §1–99(選抽)+ 分則 §271–287,其他條只有結構層與橫向關係。
 - Fact 尚未做向量嵌入;embedding 建議對 `sentence` 欄位做,或 S+P+O 串接後嵌入。
 - 「重傷」「故意」「未遂犯」等定義已入語意層(`predicate='定義'`,出自 §10/§13/§25):
   `MATCH (f:Fact {predicate:'定義'}) WHERE f.subject='重傷' RETURN f` 即可取得,

@@ -2,7 +2,7 @@
 
 把《中華民國刑法》全文轉成一張結構化、可查詢、可推理的**知識圖譜 (Knowledge Graph)**,作為後續 RAG(檢索增強生成)系統的知識骨架。
 
-> **目前狀態:三層結構 + 第四層語意事實上線。** 結構層 478 節點、677 關係;語意層 143 個 Fact 三元組(總則 §1–99 選抽 81 + 殺人/傷害罪章 62),以法條句式規則(中文 OpenIE)抽取,查核結果 ✓134 / △8(語意備註)/ ✗1(訓練集成績,held-out 評估待做)。
+> **目前狀態:三層結構 + 第四層語意事實上線。** 結構層 478 節點、674 關係;語意層 143 個 Fact 三元組(總則 §1–99 選抽 81 + 殺人/傷害罪章 62),以法條句式規則(中文 OpenIE)抽取,查核結果 ✓134 / △8(語意備註)/ ✗1(訓練集成績,held-out 評估待做)。
 
 ---
 
@@ -43,9 +43,9 @@ criminal-code-kg/
 │   ├── B_rels_oneshot.cypher # 步驟3:建立全部關係
 │   └── cleanup.cypher        # 診斷查詢(修正已內建 parser,無須再跑)
 ├── extraction/               # 第四層:語意事實抽取(中文 OpenIE)
-│   ├── extract_facts.py      # 句式規則抽取器(pilot:§271–287)
-│   ├── facts_pilot.json      # 抽取結果(62 個三元組,含出處)
-│   ├── facts_review.md       # 人工複核表(gold standard)
+│   ├── extract_facts.py      # 句式規則抽取器(總則 §1–99 選抽 + §271–287)
+│   ├── facts_pilot.json      # 抽取結果(338 筆:143 Fact + 195 UNMATCHED,含出處)
+│   ├── facts_review.md       # 人工複核表(gold standard,手工維護;腳本不會覆寫)
 │   └── C_facts_oneshot.cypher# 步驟5:Fact 節點 + EXTRACTED_FROM
 ├── docs/
 │   └── criminal_code_kg_spec.md  # 技術文件(v1 設計紀錄,現行架構見本 README)
@@ -63,7 +63,7 @@ criminal-code-kg/
 
 1. `cypher/01_constraints.cypher` — 建立約束(逐行執行)
 2. `cypher/A_nodes_oneshot.cypher` — 建立 478 個節點
-3. `cypher/B_rels_oneshot.cypher` — 建立 677 條關係
+3. `cypher/B_rels_oneshot.cypher` — 建立 674 條關係
 4. `extraction/C_facts_oneshot.cypher` — 建立第四層 143 個 Fact(檔內三步驟:約束 → 清空舊 Fact → 整段重建;fid 為條內流水號,重貼冪等)
 
 > Aura Query 編輯器一次只執行一段 statement,A/B 兩檔已各包成單段,整段貼上即可一次灌完。
@@ -113,8 +113,6 @@ python emit_oneshot.py ../data/C0000001.json
 
 詳細的節點屬性、`code` 命名規則、關係定義與設計理由,見 [`docs/criminal_code_kg_spec.md`](docs/criminal_code_kg_spec.md)。
 
-詳細的節點屬性、`code` 命名規則、關係定義與設計理由,見 [`docs/criminal_code_kg_spec.md`](docs/criminal_code_kg_spec.md)。
-
 ---
 
 ## 圖譜統計 (Statistics)
@@ -127,12 +125,12 @@ python emit_oneshot.py ../data/C0000001.json
 | Chapter(章) | 54 |
 | Part(編) | 2 |
 
-**關係 677(去重後)**
+**關係 674(去重後)**
 
 | 關係 | 中文 | 數量 |
 |---|---|---|
 | CONTAINS | 包含(階層) | 476 |
-| CITES | 引用 | 95 |
+| CITES | 引用 | 92 |
 | LISTS | 列舉(中性) | 69 |
 | AGGRAVATES | 加重 | 25 |
 | MITIGATES | 減輕 | 12 |
@@ -202,7 +200,7 @@ RETURN path;
 
 - 橫向關係以關鍵字啟發式抽取,列舉型條文需人工複核(修正已內建 parser)。
 - 「第○條第○項」引用一律連到「條」(三層模型的設計決定,項級語意由第四層三元組承擔)。
-- 少數引用指向已刪除之條文,建立關係時會因目標不存在而自動略過。
+- 跨法典引用不建邊:§98(刑事訴訟法 §121-1)、§185-3(陸海空軍刑法 §54)、§294-1(人口販運防制法 §32/§33)之條號屬其他法規,parser 會辨識法規名稱前綴並略過,避免誤指到刑法同號條文。
 - 「第X條**至**第Y條」的範圍引用只抓到頭尾兩條,中間條號未展開。
 - Fact 抽取規則以已抽章節迭代調校,**查核成績(✓134/△8/✗1)為訓練集成績**;泛化能力需 held-out 章節評估。
 - 但書若無「不在此限」字樣,省略主語無法補全(§16「按其情節,得減輕其刑」失去前文脈絡,已標 ✗)。

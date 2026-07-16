@@ -23,7 +23,8 @@ Pipeline:
      R8 亦同句:「X,亦同」繼承前一事實之謂詞與受詞
      R9 處罰原則句:「X之處罰,依/得按…」(§25/29/30/48)
      R10 種類/分類定義:「主刑之種類如下」「刑分為主刑及從刑」(§32/33/36)
-  ④ 刑度正規化 ⑤ 輸出 json / review.md / cypher
+  ④ 刑度正規化 ⑤ 輸出 json / facts_review_generated.md(底稿) / cypher
+     (人工複核成果在 facts_review.md,本腳本不觸碰)
 
 謂詞白名單:法定刑 / 刑之加重 / 刑之減免 / 未遂處罰 / 加重結果 / 訴追條件 / 定義
             / 不罰 / 科刑限制 / 保安處分 / 沒收 / 處罰依據(+「X-例外」表但書排除)
@@ -119,9 +120,13 @@ def parse_penalty(eff):
     m = re.search(rf'([{_CN}\d]+)(年|月)以下有期徒刑', eff)
     if m:
         p['max'] = f'{cn2int(m.group(1))}{m.group(2)}'
-    m = re.search(rf'([{_CN}\d]+)萬元以下罰金', eff)
-    if m:
-        p['fine_max'] = cn2int(m.group(1)) * 10000
+    # 罰金:支援「五十萬元」「三千元」「一萬五千元」三種格式
+    m = re.search(rf'(?:([{_CN}\d]+)萬)?([{_CN}\d]+)?元以下罰金', eff)
+    if m and (m.group(1) or m.group(2)):
+        wan = cn2int(m.group(1)) if m.group(1) else 0
+        rest = cn2int(m.group(2)) if m.group(2) else 0
+        if wan is not None and rest is not None:
+            p['fine_max'] = wan * 10000 + rest
     if '併科' in eff:
         p['fine_mode'] = '得併科' if '得併科' in eff else '併科'
     return p
@@ -372,9 +377,10 @@ def to_cypher(facts):
                     for r in rows)
     seg.append(f'UNWIND [{arr}] AS f MERGE (n:Fact {{fid: f.fid}}) SET n += f')
     seg.append('WITH count(*) AS _')
-    pairs = ', '.join(f"['{r['fid']}','{r['article']}']" for r in rows)
+    # 以 code(刑法-271)配對而非 number,避免日後多法典時條號互撞
+    pairs = ', '.join(f"['{r['fid']}','刑法-{r['article']}']" for r in rows)
     seg.append(f'UNWIND [{pairs}] AS p MATCH (f:Fact {{fid:p[0]}}), '
-               '(a:Article {number:p[1]}) MERGE (f)-[:EXTRACTED_FROM]->(a)')
+               '(a:Article {code:p[1]}) MERGE (f)-[:EXTRACTED_FROM]->(a)')
     seg.append('WITH count(*) AS _ MATCH (f:Fact) RETURN count(f) AS Fact數;')
     return '\n'.join(seg) + '\n'
 
@@ -384,6 +390,9 @@ def in_ranges(n):
 
 
 def main():
+    # Windows 主控台預設 cp950,印「⚠」等字元會 UnicodeEncodeError
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
     path = sys.argv[1] if len(sys.argv) > 1 else '../data/C0000001.json'
     with open(path, encoding='utf-8') as fp:
         data = json.load(fp)
@@ -410,9 +419,12 @@ def main():
         json.dump(facts, fp, ensure_ascii=False, indent=1)
     with open('C_facts_oneshot.cypher', 'w', encoding='utf-8') as fp:
         fp.write(to_cypher(facts))
-    with open('facts_review.md', 'w', encoding='utf-8') as fp:
-        fp.write('# Fact 抽取人工複核表(總則 §1–27 + 分則 §271–287)\n\n'
-                 '打勾=正確;打叉請寫正確答案 → 這張表就是 gold standard。\n\n'
+    # 產生「空白」複核表底稿;人工複核成果維護於 facts_review.md(gold standard),
+    # 本腳本絕不覆寫該檔,避免重跑時洗掉查核紀錄
+    with open('facts_review_generated.md', 'w', encoding='utf-8') as fp:
+        fp.write('# Fact 抽取複核表底稿(總則 §1–99 選抽 + 分則 §271–287)\n\n'
+                 '> 本檔為 extract_facts.py 自動產生,重跑會覆蓋。\n'
+                 '> 人工複核請維護 facts_review.md(gold standard),勿直接改本檔。\n\n'
                  '| fid | 主詞 (S) | 謂詞 (P) | 受詞 (O) | 出處 | 正確? |\n'
                  '|---|---|---|---|---|---|\n')
         for f in facts:

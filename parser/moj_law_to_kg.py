@@ -76,6 +76,25 @@ _RE_REF_ART = re.compile(
     r'(?:第([零一二三四五六七八九十\d]+)項)?'
 )
 
+# 跨法典引用:「刑事訴訟法第121條之1」「陸海空軍刑法第54條」「人口販運防制法第32條」
+# 這類條號屬於其他法規,不可建成刑法內部的邊
+_RE_LAW_PREFIX = re.compile(r'([一-鿿]{1,10}(?:法|條例|通則))$')
+_ENUM_SEP = re.compile(r'[、及或至與和]+')
+
+
+def _is_external_ref(text: str, start: int, skip_until: int) -> bool:
+    """引用是否指向其他法規:緊跟在法規名稱後(○○法第X條),
+       或以頓號等承接前一個外法引用(○○法第X條、第Y條)。"""
+    pre = text[max(0, start - 12):start]
+    m = _RE_LAW_PREFIX.search(pre)
+    if m and not m.group(1).endswith('本法'):
+        return True
+    if skip_until >= 0:
+        between = text[skip_until:start]
+        if _ENUM_SEP.fullmatch(between):
+            return True
+    return False
+
 
 def clean_title(raw: str, num_token: str) -> str:
     """從『第 二十二 章　殺人罪』取出『殺人罪』"""
@@ -179,7 +198,7 @@ def parse(law_json: dict):
                 continue
             num, sub = m.group(1), m.group(2)
             code = art_code(num, sub)
-            num_int = int(num) + (int(sub) / 10 if sub else 0)
+            num_int = int(num) + (int(sub) / 100 if sub else 0)
             content = it.get('條文內容', '') or ''
 
             paras = split_paragraphs(content)
@@ -210,7 +229,12 @@ def parse(law_json: dict):
                 if '預備犯' in ptext and _same_article_para(code, ptext, pno, 'prep'):
                     art_props['punishes_preparation'] = True
                 # 絕對引用:第○○○條(第○項)? → 一律連到「條」
+                skip_until = -1          # 外法引用鏈的結尾位置
                 for rm in _RE_REF_ART.finditer(scan_text):
+                    if _is_external_ref(scan_text, rm.start(), skip_until):
+                        skip_until = rm.end()
+                        continue
+                    skip_until = -1
                     art_n = cn2int(rm.group(1))
                     if art_n is None:
                         continue

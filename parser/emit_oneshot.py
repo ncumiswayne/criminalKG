@@ -12,9 +12,14 @@ emit_oneshot.py
 用法:
   python emit_oneshot.py ../data/C0000001.json
 """
+import os
 import sys
 import json
 from moj_law_to_kg import parse, esc
+
+# 輸出至 repo 的 cypher/ 目錄(以腳本位置定位,與執行時的工作目錄無關)
+_OUT_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', 'cypher'))
 
 
 def cmap(props):
@@ -46,7 +51,8 @@ def main():
         arr = ', '.join(cmap(r) for r in rows)
         seg.append(f'UNWIND [{arr}] AS r MERGE (n:{lbl} {{code: r.code}}) SET n += r')
     seg.append('WITH count(*) AS _ MATCH (n) RETURN count(n) AS 節點總數;')
-    with open('A_nodes_oneshot.cypher', 'w', encoding='utf-8') as f:
+    path_a = os.path.join(_OUT_DIR, 'A_nodes_oneshot.cypher')
+    with open(path_a, 'w', encoding='utf-8') as f:
         f.write('\n'.join(seg) + '\n')
 
     # ---------- B. 關係 ----------
@@ -66,10 +72,11 @@ def main():
                    'MATCH (a {code:row.s}),(b {code:row.d}) '
                    f'MERGE (a)-[x:{rel}]->(b) SET x += row.props')
     seg.append('WITH count(*) AS _ MATCH ()-[r]->() RETURN count(r) AS 關係總數;')
-    with open('B_rels_oneshot.cypher', 'w', encoding='utf-8') as f:
+    path_b = os.path.join(_OUT_DIR, 'B_rels_oneshot.cypher')
+    with open(path_b, 'w', encoding='utf-8') as f:
         f.write('\n'.join(seg) + '\n')
 
-    print('已輸出 A_nodes_oneshot.cypher / B_rels_oneshot.cypher')
+    print(f'已輸出 {path_a} / {path_b}')
 
 
 if __name__ == '__main__':

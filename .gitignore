@@ -19,3 +19,6 @@ Thumbs.db
 
 # 大型 / 衍生輸出(可由 parser 重新產生,視需要決定是否追蹤)
 # cypher/criminal_code_full.cypher
+
+# 自動產生的複核表底稿(人工複核成果在 facts_review.md,勿混淆)
+extraction/facts_review_generated.md
