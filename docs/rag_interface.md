@@ -1,16 +1,19 @@
 # RAG 串接介面文件(給檢索/LLM 端)
 
-> KG 端狀態:四層全部上線。語意層涵蓋 **總則 §1–99(定義/責任能力/正當防衛/未遂/
+> KG 端狀態:五層全部上線(概念層為 pilot)。語意層涵蓋 **總則 §1–99(定義/責任能力/正當防衛/未遂/
 > 共犯/累犯/量刑/沒收/保安處分,選抽)+ 殺人罪章 §271–276 + 傷害罪章 §277–287**,共 143 個 Fact。
+> 概念層:12 個總則概念(未遂/故意/過失/重傷/教唆犯/幫助犯/公務員/性交/電磁紀錄/凌虐/累犯/自首)。
 > 未入語意層:易刑、數罪併罰細節、加減例、緩刑/假釋/時效(計算與程序規則)——這些請靠全文檢索取原文。
 > 分則其他罪章尚未抽取,測試問題請以殺人/傷害情境為主。
 
-## 圖譜結構(四層)
+## 圖譜結構(五層)
 
 ```
 (:Part)-[:CONTAINS]->(:Chapter)-[:CONTAINS]->(:Article)   ← 結構層(全法典 422 條)
 (:Fact)-[:EXTRACTED_FROM]->(:Article)                      ← 語意層(143 個 Fact)
 (:Article)-[:AGGRAVATES|MITIGATES|CITES|LISTS]->(:Article) ← 條文橫向關係
+(:Article)-[:DEFINES {role}]->(:Concept)                   ← 概念層:總則定義條 → 概念
+(:Article)-[:USES {applies}]->(:Concept)                   ← 概念層:使用條 → 概念(過濾 applies!)
 ```
 
 ## 節點屬性契約
@@ -40,6 +43,34 @@
 | `penalty_fine_max` | int | 罰金上限(元) |
 | `penalty_fine_mode` | string | 併科 / 得併科 |
 
+**Concept(總則概念)** — 查詢理解的落點、分則⇄總則的橋
+
+| 屬性 | 型別 | 說明 |
+|---|---|---|
+| `cid` | string | 主鍵 `C-{正規名}`,如 `C-未遂`(12 個,全表見 `concepts/concepts.json`) |
+| `name` | string | 法定正規名。**只收法條用語**;口語(「沒死成」→未遂)由查詢端 LLM 剖析後對應到 cid |
+| `def_article` | string | 主定義條號,如 `'25'` |
+| `uses_count` / `defines_count` | int | 度數中繼資料(概念節點天生高度數,擴展前可先看) |
+
+邊:`(定義條)-[:DEFINES {role: 主定義|變體|減免特則}]->(:Concept)`、
+`(使用條)-[:USES {trigger, basis, para, applies, review}]->(:Concept)`
+
+> ⚠ **USES 一律過濾 `WHERE u.applies`**。`applies:false` 是「詞面出現但法律上不適用」的
+> 否定判斷(§275 教唆自殺**不是** §29 教唆犯),不過濾會把錯誤條文帶進 context 誤導 LLM。
+
+```cypher
+// 問題剖析出概念後:一跳取定義條 + 全部適用條(以 C-未遂 為例)
+MATCH (def:Article)-[d:DEFINES]->(c:Concept {cid:'C-未遂'})
+OPTIONAL MATCH (a:Article)-[u:USES]->(c) WHERE u.applies
+RETURN c.name, collect(DISTINCT {條: def.number, 角色: d.role}) AS 定義條,
+       collect(DISTINCT a.number) AS 使用條;
+
+// 反向:由命中條文擴展其概念之總則依據(殺人未遂 → §25/26/27)
+MATCH (a:Article {number:'271'})-[u:USES]->(c:Concept)<-[d:DEFINES]-(def:Article)
+WHERE u.applies
+RETURN c.name, d.role, def.number, def.text;
+```
+
 ## 建議檢索流程(甲持刀傷人致重傷)
 
 ```
@@ -65,7 +96,10 @@
   `MATCH (f:Fact {predicate:'定義'}) WHERE f.subject='重傷' RETURN f` 即可取得,
   命中重傷相關 Fact 時建議一併附帶其定義 Fact 與 §10 原文。
 - min/max 只描述有期徒刑;問「最重可判什麼」要看 `penalty_types`。
-- 概念仍未跨條連結(§277 的「重傷」和 §10 的「重傷」是字串相同、非同一節點),概念層做好前先用字串比對。
+- 概念層 pilot 只有 12 個總則概念——這些走 Concept 節點圖走訪(§277 的「重傷」和 §10 的「重傷」
+  已是同一個 `C-重傷` 節點);12 個以外的概念(如「加重結果」「預備」)仍需字串比對。
+- 概念層的詞面掃描候選 168 條尚待人工複核(`review:'pending'`);誤導風險最高的 5 條已裁決為
+  `applies:false`,其餘可先信任使用,複核進度見 `concepts/uses_review.md`。
 
 ## 測試問題建議(涵蓋不同謂詞)
 

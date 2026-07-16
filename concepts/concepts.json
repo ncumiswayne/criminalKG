@@ -1,0 +1,138 @@
+{
+  "law": "中華民國刑法",
+  "law_version": "2026-03-13",
+  "description": "總則概念錨定層 pilot 詞表(12 概念)。入選標準:有明確單一定義條、爭議最小。USES 候選由觸發詞詞面掃描產生(立法用語一致原則),經裁決標 applies;詞面出現≠法律適用,詳見 overrides。",
+  "concepts": [
+    {
+      "cid": "C-重傷",
+      "name": "重傷",
+      "def_article": "10",
+      "defines": [{"article": "10", "role": "主定義"}],
+      "triggers": ["重傷"],
+      "overrides": [],
+      "notes": "§10 IV:毀敗或嚴重減損視能/聽能/語能/味嗅能/肢體/生殖機能,或其他重大不治難治之傷害"
+    },
+    {
+      "cid": "C-凌虐",
+      "name": "凌虐",
+      "def_article": "10",
+      "defines": [{"article": "10", "role": "主定義"}],
+      "triggers": ["凌虐"],
+      "overrides": [],
+      "notes": "§10 VII:以強暴、脅迫或其他違反人道之方法,對他人施以凌辱虐待行為。「虐待」為口語,非法條用語,不收"
+    },
+    {
+      "cid": "C-公務員",
+      "name": "公務員",
+      "def_article": "10",
+      "defines": [{"article": "10", "role": "主定義"}],
+      "triggers": ["公務員"],
+      "overrides": [],
+      "notes": "§10 II:依法令服務於國家、地方自治團體所屬機關而具有法定職務權限者等(身分犯之核心概念)"
+    },
+    {
+      "cid": "C-性交",
+      "name": "性交",
+      "def_article": "10",
+      "defines": [{"article": "10", "role": "主定義"}],
+      "triggers": ["性交"],
+      "overrides": [],
+      "notes": "§10 V:非基於正當目的所為之性侵入行為"
+    },
+    {
+      "cid": "C-電磁紀錄",
+      "name": "電磁紀錄",
+      "def_article": "10",
+      "defines": [{"article": "10", "role": "主定義"}],
+      "triggers": ["電磁紀錄"],
+      "overrides": [],
+      "notes": "§10 VI:以電子、磁性、光學或其他相類之方式所製成,而供電腦處理之紀錄"
+    },
+    {
+      "cid": "C-故意",
+      "name": "故意",
+      "def_article": "13",
+      "defines": [{"article": "13", "role": "主定義"}],
+      "triggers": ["故意"],
+      "overrides": [],
+      "notes": "§13:明知並有意使其發生(直接故意)/預見其發生而其發生並不違背其本意(間接故意)。觸發詞不收「明知」:分則之明知(§128–131、§213–215 等)為獨立主觀構成要件(直接故意之限縮),逐條裁決留第二期"
+    },
+    {
+      "cid": "C-過失",
+      "name": "過失",
+      "def_article": "14",
+      "defines": [{"article": "14", "role": "主定義"}],
+      "triggers": ["過失"],
+      "overrides": [],
+      "notes": "§14:應注意並能注意而不注意(無認識過失)/預見其能發生而確信其不發生(有認識過失)"
+    },
+    {
+      "cid": "C-未遂",
+      "name": "未遂",
+      "def_article": "25",
+      "defines": [
+        {"article": "25", "role": "主定義"},
+        {"article": "26", "role": "變體"},
+        {"article": "27", "role": "減免特則"}
+      ],
+      "triggers": [],
+      "seed": "punishes_attempt",
+      "overrides": [],
+      "notes": "§25:已著手於犯罪行為之實行而不遂;§26 不能未遂不罰;§27 中止犯減免。USES 不走詞面掃描,由 Article.punishes_attempt 屬性播種(parser 以「未遂犯(，)罰之」句式規則確定性抽取,93 條)。詞面掃描「未遂」命中 95 條,差集 §25(定義條)與 §319-6(告訴乃論條文、非處罰宣示)——屬性播種比詞面掃描精準的實例"
+    },
+    {
+      "cid": "C-教唆犯",
+      "name": "教唆犯",
+      "def_article": "29",
+      "defines": [{"article": "29", "role": "主定義"}],
+      "triggers": ["教唆"],
+      "overrides": [
+        {"article": "275", "applies": false,
+         "reason": "教唆自殺為獨立構成要件:§29 教唆犯有從屬性,被教唆行為須為犯罪;自殺非犯罪,無法經 §29 成罪,立法者特別入罪(canonical 反例)"},
+        {"article": "282", "applies": false,
+         "reason": "教唆自傷為獨立構成要件:自傷非犯罪,同 §275 之理,不適用 §29"}
+      ],
+      "notes": "§29:教唆他人使之實行犯罪行為者。從屬性:被教唆之行為本身須為犯罪"
+    },
+    {
+      "cid": "C-幫助犯",
+      "name": "幫助犯",
+      "def_article": "30",
+      "defines": [{"article": "30", "role": "主定義"}],
+      "triggers": ["幫助"],
+      "overrides": [
+        {"article": "275", "applies": false,
+         "reason": "幫助自殺為獨立構成要件:自殺非犯罪,§30 從屬性不適用,立法者特別入罪"},
+        {"article": "282", "applies": false,
+         "reason": "幫助自傷為獨立構成要件:自傷非犯罪,同 §275 之理,不適用 §30"},
+        {"article": "107", "applies": false,
+         "reason": "「幫助敵國之間諜」為幫助行為之正犯化(獨立加重構成要件),依本款以正犯論處,不依 §30 幫助犯得減輕"}
+      ],
+      "notes": "§30:幫助他人實行犯罪行為者;得按正犯之刑減輕之"
+    },
+    {
+      "cid": "C-累犯",
+      "name": "累犯",
+      "def_article": "47",
+      "defines": [{"article": "47", "role": "主定義"}],
+      "triggers": ["累犯"],
+      "overrides": [],
+      "notes": "§47:徒刑執行完畢或赦免後五年內故意再犯有期徒刑以上之罪;加重本刑至二分之一。§47 II 強制工作免刑者「以累犯論」為擬制"
+    },
+    {
+      "cid": "C-自首",
+      "name": "自首",
+      "def_article": "62",
+      "defines": [{"article": "62", "role": "主定義"}],
+      "triggers": ["自首"],
+      "overrides": [],
+      "notes": "§62:對於未發覺之罪自首而受裁判者,得減輕其刑;有特別規定者依其規定(§102/§122 III/§154 II 即特別規定)"
+    }
+  ],
+  "deferred": [
+    {"name": "告訴乃論", "reason": "程序定義在刑事訴訟法(跨法典,本階段排除);結構層已有 LISTS 邊與 Fact 訴追條件謂詞可用"},
+    {"name": "直系血親尊親屬", "reason": "定義在民法 §967(跨法典,本階段排除)"},
+    {"name": "預備", "reason": "總則無一般性定義條,僅分則個別處罰規定(§271 III 等)——高頻詞不必然有定義條,詞表須逐一考證"},
+    {"name": "加重結果犯", "reason": "有概念無詞面(§17 ↔ 分則「因而致人於死/致重傷」句式),詞面掃描結構上無法覆蓋,需人工種子清單支線(第二期)"}
+  ]
+}

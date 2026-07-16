@@ -224,7 +224,10 @@ def parse(law_json: dict):
                         props['condition'] = _condition(scan_text)
                     crossref.append((code, rel, last_article[0], props))
                 # 未遂 / 預備:同條內的處罰宣示 → 記為 Article 布林屬性
-                if '未遂犯' in ptext and _same_article_para(code, ptext, pno, 'attempt'):
+                # 須為「未遂犯(，)罰之」句式;僅含「未遂犯」字樣者非處罰宣示
+                # (§25 總則處罰原則、§319-6 告訴乃論條文即誤標反例)
+                if (re.search(r'未遂犯，?罰之', ptext)
+                        and _same_article_para(code, ptext, pno, 'attempt')):
                     art_props['punishes_attempt'] = True
                 if '預備犯' in ptext and _same_article_para(code, ptext, pno, 'prep'):
                     art_props['punishes_preparation'] = True

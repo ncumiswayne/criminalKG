@@ -2,7 +2,7 @@
 
 把《中華民國刑法》全文轉成一張結構化、可查詢、可推理的**知識圖譜 (Knowledge Graph)**,作為後續 RAG(檢索增強生成)系統的知識骨架。
 
-> **目前狀態:三層結構 + 第四層語意事實上線。** 結構層 478 節點、674 關係;語意層 143 個 Fact 三元組(總則 §1–99 選抽 81 + 殺人/傷害罪章 62),以法條句式規則(中文 OpenIE)抽取,查核結果 ✓134 / △8(語意備註)/ ✗1(訓練集成績,held-out 評估待做)。
+> **目前狀態:三層結構 + 第四層語意事實 + 第五層概念錨定層(pilot)上線。** 結構層 478 節點、674 關係;語意層 143 個 Fact 三元組(總則 §1–99 選抽 81 + 殺人/傷害罪章 62),查核 ✓134 / △8 / ✗1(訓練集成績,held-out 評估待做);概念層 12 個總則 Concept(DEFINES 14、USES 266,其中 5 條 applies:false 否定判斷、168 條候選待人工複核)。
 
 ---
 
@@ -47,6 +47,11 @@ criminal-code-kg/
 │   ├── facts_pilot.json      # 抽取結果(338 筆:143 Fact + 195 UNMATCHED,含出處)
 │   ├── facts_review.md       # 人工複核表(gold standard,手工維護;腳本不會覆寫)
 │   └── C_facts_oneshot.cypher# 步驟5:Fact 節點 + EXTRACTED_FROM
+├── concepts/                 # 第五層:總則概念錨定層(pilot 12 概念)
+│   ├── concepts.json         # 概念詞表(定義條/觸發詞/裁決覆寫,人工維護)
+│   ├── build_concepts.py     # 產生器:播種 + 詞面掃描 + 裁決 → D 檔
+│   ├── uses_review.md        # USES 邊複核表(人工維護;腳本不會覆寫)
+│   └── D_concepts_oneshot.cypher # 步驟6:Concept + DEFINES/USES
 ├── docs/
 │   └── criminal_code_kg_spec.md  # 技術文件(v1 設計紀錄,現行架構見本 README)
 └── examples/
@@ -65,6 +70,7 @@ criminal-code-kg/
 2. `cypher/A_nodes_oneshot.cypher` — 建立 478 個節點
 3. `cypher/B_rels_oneshot.cypher` — 建立 674 條關係
 4. `extraction/C_facts_oneshot.cypher` — 建立第四層 143 個 Fact(檔內三步驟:約束 → 清空舊 Fact → 整段重建;fid 為條內流水號,重貼冪等)
+5. `concepts/D_concepts_oneshot.cypher` — 建立第五層 12 個 Concept + DEFINES/USES(檔內三步驟,同 C 檔模式,重貼冪等)
 
 > Aura Query 編輯器一次只執行一段 statement,A/B 兩檔已各包成單段,整段貼上即可一次灌完。
 
@@ -111,6 +117,23 @@ python emit_oneshot.py ../data/C0000001.json
   `penalty_min/max_months`(月數,供數值比較)、`penalty_fine_max`(罰金上限)、`penalty_fine_mode`(併科)
   > 語意約定:min/max 只描述**有期徒刑**區間;死刑/無期徒刑/拘役/罰金為類別,記於 types;罰金金額在 fine_max。
 
+**第五層:概念錨定層 (Concept)** — pilot 12 個總則概念:
+
+```
+(總則定義條:Article)-[:DEFINES {role: 主定義|變體|減免特則}]->(:Concept)
+(使用條:Article)-[:USES {trigger, basis, para, applies, review}]->(:Concept)
+```
+
+- 解決「分則→總則零連結」:分則行文寫「未遂犯罰之」而非「依第25條」,字面無條號可抓,
+  以 Concept 節點作中介,`§271 →USES→ C-未遂 ←DEFINES← §25` 兩跳可達。
+- **`applies:false` 為一等資料**:詞面出現 ≠ 法律適用(§275「教唆」自殺非 §29 教唆犯——
+  從屬性:被教唆行為須為犯罪)。裁決為不適用的邊保留並標 `review:'rejected'`,
+  否定判斷防止自動化重複建錯;**檢索時一律過濾 `WHERE u.applies`**。
+- C-未遂 的 USES 由 `punishes_attempt` 屬性播種(93 條,規則抽取、零裁決成本);
+  其餘概念走「詞面掃描 → 裁決 → 人工複核」流水線(觸發詞高召回靠立法用語一致原則)。
+- 詞表與裁決紀錄:[`concepts/concepts.json`](concepts/concepts.json);
+  複核表:[`concepts/uses_review.md`](concepts/uses_review.md)。
+
 詳細的節點屬性、`code` 命名規則、關係定義與設計理由,見 [`docs/criminal_code_kg_spec.md`](docs/criminal_code_kg_spec.md)。
 
 ---
@@ -139,8 +162,11 @@ python emit_oneshot.py ../data/C0000001.json
 
 | 屬性 | 中文 | 數量 |
 |---|---|---|
-| punishes_attempt | 未遂處罰 | 95 |
+| punishes_attempt | 未遂處罰 | 93 |
 | punishes_preparation | 預備處罰 | 7 |
+
+> punishes_attempt 以「未遂犯(，)罰之」句式判定;§25(總則處罰原則)與
+> §319-6(告訴乃論條文)僅含「未遂犯」字樣、非處罰宣示,已排除。
 
 **第四層 Fact(總則 §1–99 選抽 + 分則 §271–287)共 143**
 
@@ -159,6 +185,19 @@ python emit_oneshot.py ../data/C0000001.json
 | 訴追條件 | 4 | 含 §287 但書例外 |
 | 沒收 | 3 | §38/§38-1 |
 | X-例外 | 2 | 但書排除(§21/§48) |
+
+**第五層 Concept(pilot 12 概念)**
+
+| 項目 | 數量 | 說明 |
+|---|---|---|
+| Concept 節點 | 12 | §10 定義群(重傷/凌虐/公務員/性交/電磁紀錄)+ 故意/過失/未遂/教唆犯/幫助犯/累犯/自首 |
+| DEFINES | 14 | C-未遂 含 §26(變體)、§27(減免特則) |
+| USES | 266 | 播種 93(approved)+ 詞面掃描 173 |
+| USES applies:false | 5 | §275/§282 教唆・幫助自殺自傷、§107 幫助間諜(正犯化) |
+| 待人工複核 | 168 | review:'pending',見 `concepts/uses_review.md` |
+
+> 暫緩收錄:告訴乃論(定義在刑訴法)、直系血親尊親屬(民法 §967)、預備(總則無定義條)、
+> 加重結果犯(有概念無詞面,§17 ↔「因而致人於死」,需人工種子清單支線)。
 
 > 另有 195 句 UNMATCHED = **刻意不抽**的類別(適用範圍 §1–9、易刑 §41–44、
 > 數罪併罰細節 §51、加減例 §64–73、緩刑/假釋/時效 §74–85 等計算與程序規則),
@@ -189,7 +228,8 @@ RETURN path;
 - [x] **總則擴抽 §1–99**(選抽 81 個:定義/責任/未遂/共犯/累犯/量刑/沒收/保安處分;查核 ✓134/△8/✗1)
 - [ ] Held-out 評估:規則凍結,直接跑竊盜/詐欺罪章,計算 precision / recall(誠實的成績)
 - [ ] 抽取範圍擴至整部分則,錯誤分析 → 規則迭代
-- [ ] 概念層 (Concept):建法律概念詞表,把散落各條的同一概念(故意/重傷/幫助犯)合併為共享節點
+- [x] **概念層 (Concept) pilot**:12 個總則概念詞表 + DEFINES 14 / USES 266(含 5 條 applies:false 否定判斷);168 條掃描候選待人工複核
+- [ ] 概念層第二期:USES 候選人工複核、擴詞表、加重結果犯人工種子清單、(:Fact)-[:MENTIONS]->(:Concept) 細粒度邊
 - [ ] 三元組向量嵌入(Neo4j vector index),作為 GraphRAG 檢索入口
 - [ ] 查詢理解層:LLM 把口語問題正規化為法律用語後再檢索
 - [ ] 規則引擎:易刑/加減例/緩刑假釋時效等計算與程序規則(§41–44、§51、§64–73、§74–85,可用 penalty_*_months 屬性計算)
